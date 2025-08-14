@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Homework Planner</title>
+  <style>
+    :root{font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:0}
+    body{background:#f6f8fb;color:#1f2937;padding:18px}
+    .card{background:#fff;border-radius:12px;box-shadow:0 6px 18px rgba(35,47,60,0.08);padding:16px;margin-bottom:16px}
+    h1{margin:0 0 8px;font-size:20px}
+    form .row{display:flex;gap:8px;flex-wrap:wrap}
+    label{font-size:13px;color:#374151}
+    input,select,textarea{padding:8px;border-radius:8px;border:1px solid #e6e9ef;font-size:14px;min-width:0}
+    button{background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px;border:0;cursor:pointer}
+    .tasks-list{display:grid;gap:8px}
+    .task{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;border:1px dashed #e6e9ef}
+    .small{font-size:12px;color:#6b7280}
+    table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid #e6e9ef;padding:8px;text-align:left}
+    .date-col{min-width:120px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px}
+    .muted{color:#6b7280}
+    @media (max-width:720px){.row{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Homework Planner — Fixed Dates</h1>
+    <p class="small muted">Add tasks (subject, title, deadline, estimated minutes). Timetable is now timezone-safe.</p>
+  </div>
+
+  <div class="card">
+    <form id="taskForm">
+      <div class="row">
+        <div style="flex:1;min-width:160px">
+          <label>Subject</label>
+          <input id="subject" required placeholder="e.g. Math" />
+        </div>
+        <div style="flex:2;min-width:200px">
+          <label>Task title</label>
+          <input id="title" required placeholder="e.g. Exercise 5.2" />
+        </div>
+        <div style="min-width:160px">
+          <label>Deadline</label>
+          <input id="deadline" type="date" required />
+        </div>
+        <div style="min-width:160px">
+          <label>Estimated (minutes)</label>
+          <input id="minutes" type="number" min="5" value="60" required />
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+        <button type="submit">Add task</button>
+        <button type="button" id="generate">Generate timetable</button>
+        <button type="button" id="clearAll">Clear all</button>
+        <div style="margin-left:auto" class="muted small">Saved locally</div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Tasks</h3>
+    <div id="tasks" class="tasks-list"></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+      <h3 style="margin:0">Timetable</h3>
+      <div class="pill" id="rangeInfo"></div>
+    </div>
+    <div id="timetableWrap"></div>
+  </div>
+
+<script>
+// -------- Date helpers (local-safe) --------
+function parseDateLocal(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function dateToYMD(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+function formatDateLocal(date) {
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+function daysBetween(a, b) {
+  const A = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  const B = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((B - A) / (24*60*60*1000));
+}
+
+// -------- State --------
+const $ = id => document.getElementById(id);
+const KEY = 'homework_planner_tasks_v2';
+let tasks = JSON.parse(localStorage.getItem(KEY) || '[]');
+
+// -------- Rendering --------
+function renderTasks() {
+  const container = $('tasks');
+  container.innerHTML = '';
+  if (tasks.length === 0) {
+    container.innerHTML = '<div class="muted small">No tasks yet</div>';
+    return;
+  }
+  tasks.forEach((t, idx) => {
+    const el = document.createElement('div');
+    el.className = 'task';
+    el.innerHTML = `<div>
+      <strong>${t.subject} — ${t.title}</strong>
+      <div class="small muted">Deadline: ${t.deadline} • ${t.minutes} min</div>
+    </div>`;
+    const del = document.createElement('button');
+    del.textContent = 'Delete';
+    del.onclick = () => { if (confirm('Delete this task?')) { tasks.splice(idx, 1); saveAndRender(); } };
+    el.appendChild(del);
+    container.appendChild(el);
+  });
+}
+function saveAndRender() {
+  localStorage.setItem(KEY, JSON.stringify(tasks));
+  renderTasks();
+}
+
+// -------- Handlers --------
+$('taskForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const subject = $('subject').value.trim();
+  const title = $('title').value.trim();
+  const deadlineStr = $('deadline').value;
+  const minutes = parseInt($('minutes').value, 10) || 60;
+  if (!subject || !title || !deadlineStr) return alert('Please fill all fields');
+  tasks.push({ subject, title, deadline: deadlineStr, minutes });
+  tasks.sort((a, b) => parseDateLocal(a.deadline) - parseDateLocal(b.deadline));
+  saveAndRender();
+  $('taskForm').reset();
+});
+
+$('clearAll').addEventListener('click', () => {
+  if (confirm('Clear all tasks?')) {
+    tasks = [];
+    saveAndRender();
+    $('timetableWrap').innerHTML = '';
+    $('rangeInfo').textContent = '';
+  }
+});
+
+// -------- Timetable --------
+$('generate').addEventListener('click', () => {
+  if (tasks.length === 0) return alert('Add some tasks first');
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const latest = new Date(Math.max(...tasks.map(t => parseDateLocal(t.deadline))));
+  const totalDays = daysBetween(start, latest) + 1;
+  const dayBuckets = {};
+  for (let i = 0; i < totalDays; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    dayBuckets[dateToYMD(d)] = { date: dateToYMD(d), tasks: [], minutes: 0 };
+  }
+  tasks.forEach(task => {
+    const deadlineDate = parseDateLocal(task.deadline);
+    const daysAvail = daysBetween(start, deadlineDate) + 1;
+    let remaining = task.minutes;
+    for (let i = 0; i < daysAvail; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      if (d > deadlineDate) break;
+      const share = Math.ceil(remaining / (daysAvail - i));
+      dayBuckets[dateToYMD(d)].tasks.push({ subject: task.subject, title: task.title, minutes: share });
+      dayBuckets[dateToYMD(d)].minutes += share;
+      remaining -= share;
+    }
+  });
+  const keys = Object.keys(dayBuckets);
+  $('rangeInfo').textContent = keys[0] + ' → ' + keys[keys.length - 1];
+  const wrap = $('timetableWrap');
+  wrap.innerHTML = '';
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th class="date-col">Date</th><th>Planned Items</th><th>Total (min)</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  keys.forEach(k => {
+    const row = document.createElement('tr');
+    row.innerHTML = `<td><strong>${k}</strong><div class="small muted">${formatDateLocal(parseDateLocal(k))}</div></td>
+      <td>${dayBuckets[k].tasks.length ? dayBuckets[k].tasks.map(it =>
+        `<div><strong>${it.subject}</strong> — ${it.title} <span class="small muted">(${it.minutes} min)</span></div>`).join('') :
+        '<div class="small muted">No work planned</div>'}</td>
+      <td>${dayBuckets[k].minutes} min</td>`;
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+});
+
+// -------- Init --------
+renderTasks();
+</script>
+</body>
+</html>
